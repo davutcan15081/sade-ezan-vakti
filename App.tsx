@@ -188,38 +188,27 @@ const App: React.FC = () => {
     try {
       if (Capacitor.isNativePlatform()) {
         // Android'de AlarmManager ile doğrudan alarm tetikleme
-        const { Capacitor } = await import('@capacitor/core');
-        const { PluginListenerHandle } = await import('@capacitor/core');
+        const DirectAlarm = (await import('./services/directAlarm')).default;
         
-        // Custom plugin çağrısı - AlarmManager tetikleme
-        await (window as any).Capacitor.Plugins.AlarmManager.scheduleAlarm({
-          time: scheduleTime.getTime(),
+        await DirectAlarm.scheduleAlarm({
           prayer: prayerKey,
-          autoTrigger: 'true',
-          directLaunch: 'true',
-          testMode: testMode ? 'true' : 'false'
+          timestamp: scheduleTime.getTime(),
+          autoTrigger: true,
+          directLaunch: true,
+          testMode: testMode
         });
         
         console.log(`${prayerKey} doğrudan alarmı planlandı: ${scheduleTime.toLocaleString()}`);
       } else {
-        // Web ortamında normal bildirim kullan
-        await LocalNotifications.schedule({
-          notifications: [{
-            id: Math.floor(scheduleTime.getTime() / 1000),
-            title: testMode ? 'Test Alarmı' : 'Ezan Vakti',
-            body: testMode ? '1 dakika sonra test alarmı' : `${prayerKey} vakti geldi`,
-            schedule: { at: scheduleTime },
-            channelId: 'ezan_alarm_direct',
-            sound: '',
-            silent: false,
-            autoCancel: true,
-            extra: { 
-              prayer: prayerKey, 
-              autoTrigger: 'true', 
-              directLaunch: 'true',
-              testMode: testMode ? 'true' : 'false'
-            }
-          }]
+        // Web ortamında DirectAlarm Web sürümünü kullan
+        const DirectAlarm = (await import('./services/directAlarm')).default;
+        
+        await DirectAlarm.scheduleAlarm({
+          prayer: prayerKey,
+          timestamp: scheduleTime.getTime(),
+          autoTrigger: true,
+          directLaunch: true,
+          testMode: testMode
         });
       }
     } catch (error) {
@@ -232,7 +221,7 @@ const App: React.FC = () => {
           body: testMode ? '1 dakika sonra test alarmı' : `${prayerKey} vakti geldi`,
           schedule: { at: scheduleTime },
           channelId: 'ezan_alarm_direct',
-          sound: '',
+          sound: 'default',
           silent: false,
           autoCancel: true,
           extra: { 
@@ -240,7 +229,8 @@ const App: React.FC = () => {
             autoTrigger: 'true', 
             directLaunch: 'true',
             testMode: testMode ? 'true' : 'false'
-          }
+          },
+          actionTypeId: 'OPEN_APP_ACTION'
         }]
       });
     }
@@ -536,34 +526,22 @@ const App: React.FC = () => {
         try {
           console.log('Doğrudan AlarmManager deneniyor...');
           
-          // WebView üzerinden doğrudan Java metodu çağrısı
-          const alarmData = {
-            time: testAlarmTime.getTime(),
-            prayer: 'ogle',
-            autoTrigger: 'true',
-            directLaunch: 'true',
-            testMode: 'true'
-          };
+          // DirectAlarm plugin kullanarak alarmı planla
+          const DirectAlarm = (await import('./services/directAlarm')).default;
+          await DirectAlarm.scheduleAlarm({
+            prayer: 'test_ogle',
+            timestamp: testAlarmTime.getTime()
+          });
           
-          console.log('Alarm verileri:', alarmData);
-          
-          // Bridge üzerinden doğrudan çağrı
-          if ((window as any).Capacitor && (window as any).Capacitor.nativeCallback) {
-            await (window as any).Capacitor.nativeCallback('setDirectAlarm', alarmData);
-            console.log('Doğrudan AlarmManager çağrısı başarılı');
-          } else {
-            console.log('Capacitor nativeCallback bulunamadı, bildirim deneniyor...');
-            throw new Error('Native callback mevcut değil');
-          }
-          
+          console.log('Doğrudan AlarmManager çağrısı başarılı');
         } catch (error) {
-          console.log('Doğrudan AlarmManager başarısız, bildirim deneniyor:', error);
+          console.log('Doğrudan AlarmManager başarısız, bildirim denenıyor:', error);
           
           // Fallback: Bildirim kullan
           await LocalNotifications.schedule({
             notifications: [{
               id: Math.floor(testAlarmTime.getTime() / 1000),
-              title: '🔥 SON ÇARE ALARMI',
+              title: '🔥 TEST ALARMI',
               body: '1 dakika sonra OTOMATİK açılacak - LÜTFEN BEKLEYİN!',
               schedule: { at: testAlarmTime },
               channelId: 'ezan_alarm_direct',
@@ -571,12 +549,13 @@ const App: React.FC = () => {
               silent: false,
               autoCancel: true,
               extra: { 
-                prayer: 'ogle', 
+                prayer: 'test_ogle', 
                 autoTrigger: 'true', 
                 directLaunch: 'true',
                 testMode: 'true',
                 forceAutoOpen: 'true'
-              }
+              },
+              actionTypeId: 'OPEN_APP_ACTION'
             }]
           });
         }
@@ -589,15 +568,16 @@ const App: React.FC = () => {
             body: '1 dakika sonra test alarmı',
             schedule: { at: testAlarmTime },
             channelId: 'ezan_alarm_direct',
-            sound: '',
+            sound: 'default',
             silent: false,
             autoCancel: true,
             extra: { 
-              prayer: 'ogle', 
+              prayer: 'test_ogle', 
               autoTrigger: 'true', 
               directLaunch: 'true',
               testMode: 'true'
-            }
+            },
+            actionTypeId: 'OPEN_APP_ACTION'
           }]
         });
       }
