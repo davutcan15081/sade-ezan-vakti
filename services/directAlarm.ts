@@ -35,40 +35,66 @@ export interface DirectAlarmPlugin {
 }
 
 class DirectAlarmWeb extends WebPlugin implements DirectAlarmPlugin {
-  async scheduleAlarm(options: { 
-    prayer: string; 
+  private testTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+  async scheduleAlarm(options: {
+    prayer: string;
     timestamp: number;
     autoTrigger?: boolean;
     directLaunch?: boolean;
     testMode?: boolean;
-  }): Promise<{ success: boolean; message: string; }> {
-    console.log('Web platform: Alarm scheduling simulated for', options.prayer, 'at', new Date(options.timestamp), 'with options:', { 
-      autoTrigger: options.autoTrigger, 
-      directLaunch: options.directLaunch, 
-      testMode: options.testMode 
-    });
-    
-    // Simulate the alarm behavior for web
-    setTimeout(() => {
-      if (options.testMode) {
-        console.log('Web platform: Test alarm triggered for', options.prayer);
-        // Trigger the alarm screen for test mode
-        const event = new CustomEvent('showAlarm', { detail: { prayer: options.prayer } });
-        window.dispatchEvent(event);
-      }
-    }, options.timestamp - Date.now());
-    
-    return { success: true, message: 'Web platform: Alarm scheduled (simulated)' };
+  }): Promise<{ success: boolean; message: string }> {
+    const delayMs = options.timestamp - Date.now();
+
+    console.log(
+      `[DirectAlarm] Web: "${options.prayer}" için alarm kuruldu. ${Math.round(delayMs / 1000)}sn sonra tetiklenecek.`,
+      { autoTrigger: options.autoTrigger, testMode: options.testMode }
+    );
+
+    // Önceki aynı isimli timer varsa temizle
+    if (this.testTimers.has(options.prayer)) {
+      clearTimeout(this.testTimers.get(options.prayer));
+    }
+
+    if (delayMs <= 0) {
+      // Zaten geçmiş — hemen tetikle
+      this._triggerAlarmScreen(options.prayer);
+    } else {
+      const timer = setTimeout(() => {
+        this._triggerAlarmScreen(options.prayer);
+        this.testTimers.delete(options.prayer);
+      }, delayMs);
+
+      this.testTimers.set(options.prayer, timer);
+    }
+
+    return {
+      success: true,
+      message: `Web: "${options.prayer}" alarmı ${Math.round(delayMs / 1000)}sn içinde otomatik açılacak.`,
+    };
   }
 
-  async cancelAlarm(options: { prayer: string }): Promise<{ success: boolean; message: string; }> {
-    console.log('Web platform: Alarm cancellation simulated for', options.prayer);
-    return { success: true, message: 'Web platform: Alarm cancelled (simulated)' };
+  /** Alarm ekranını otomatik açar — bildirime tıklama gerekmez */
+  private _triggerAlarmScreen(prayer: string) {
+    console.log(`[DirectAlarm] ⏰ Alarm tetikleniyor: "${prayer}"`);
+    const event = new CustomEvent('showAlarm', { detail: { prayer } });
+    window.dispatchEvent(event);
   }
 
-  async cancelAllAlarms(): Promise<{ success: boolean; message: string; }> {
-    console.log('Web platform: All alarms cancelled (simulated)');
-    return { success: true, message: 'Web platform: All alarms cancelled (simulated)' };
+  async cancelAlarm(options: { prayer: string }): Promise<{ success: boolean; message: string }> {
+    if (this.testTimers.has(options.prayer)) {
+      clearTimeout(this.testTimers.get(options.prayer));
+      this.testTimers.delete(options.prayer);
+    }
+    console.log(`[DirectAlarm] Web: "${options.prayer}" alarmı iptal edildi.`);
+    return { success: true, message: `Web: "${options.prayer}" alarmı iptal edildi.` };
+  }
+
+  async cancelAllAlarms(): Promise<{ success: boolean; message: string }> {
+    this.testTimers.forEach((timer) => clearTimeout(timer));
+    this.testTimers.clear();
+    console.log('[DirectAlarm] Web: Tüm alarmlar iptal edildi.');
+    return { success: true, message: 'Web: Tüm alarmlar iptal edildi.' };
   }
 }
 

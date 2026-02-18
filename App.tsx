@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Geolocation } from '@capacitor/geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
@@ -12,6 +11,18 @@ import AlarmOverlay from './components/AlarmOverlay';
 import SettingsModal from './components/SettingsModal';
 import LocationModal from './components/LocationModal';
 import appLogo from './assets/icon.png';
+
+// ============================================================
+// PRAYER KEY → TÜRKÇE İSİM HARİTASI (merkezi tanım)
+// ============================================================
+const PRAYER_NAME_MAP: Record<string, string> = {
+  imsak: 'İmsak',
+  gunes: 'Güneş',
+  ogle: 'Öğle',
+  ikindi: 'İkindi',
+  aksam: 'Akşam',
+  yatsi: 'Yatsı',
+};
 
 // ============================================================
 // BİLDİRİM KANALI (Doğrudan ekran açan alarm)
@@ -34,62 +45,17 @@ const setupNotificationChannel = async () => {
 };
 
 // ============================================================
-// UYGULAMAYI DOĞRUDAN AÇAN ALARM TETİKLEYİCİSİ
-// ============================================================
-const triggerAlarmDirectly = async (prayerKey: string) => {
-  try {
-    // Uygulama kapalıysa uygulamayı aç ve alarm ekranını göster
-    if (Capacitor.isNativePlatform()) {
-      // Native platformda doğrudan alarm ekranını göster
-      const keyToName: Record<string, string> = {
-        imsak: 'İmsak', gunes: 'Güneş', ogle: 'Öğle',
-        ikindi: 'İkindi', aksam: 'Akşam', yatsi: 'Yatsı'
-      };
-      const prayerName = keyToName[prayerKey] || prayerKey;
-      
-      // Alarm state'ini doğrudan güncelle
-      const event = new CustomEvent('showAlarm', { detail: { prayer: prayerName } });
-      window.dispatchEvent(event);
-    } else {
-      // Web ortamında doğrudan alarm ekranını göster
-      const keyToName: Record<string, string> = {
-        imsak: 'İmsak', gunes: 'Güneş', ogle: 'Öğle',
-        ikindi: 'İkindi', aksam: 'Akşam', yatsi: 'Yatsı'
-      };
-      const prayerName = keyToName[prayerKey] || prayerKey;
-      
-      // Alarm state'ini doğrudan güncelle
-      const event = new CustomEvent('showAlarm', { detail: { prayer: prayerName } });
-      window.dispatchEvent(event);
-    }
-  } catch (e) {
-    console.warn("Doğrudan alarm tetikleme başarısız:", e);
-  }
-};
-
-// ============================================================
-// UYGULAMA BAŞLANGIÇTA ALARM KONTROLÜ
+// UYGULAMA BAŞLANGIÇTA ALARM KONTROLÜ (URL parametresi)
 // ============================================================
 const checkForPendingAlarm = async () => {
   try {
-    // Uygulama bildirimle açıldıysa, alarm verisini kontrol et
     const urlParams = new URLSearchParams(window.location.search);
     const prayer = urlParams.get('prayer');
     if (prayer) {
-      // URL'den prayer parametresini temizle
       window.history.replaceState({}, document.title, window.location.pathname);
-      
-      // Kısa bir gecikme ile alarm ekranını göster
       setTimeout(() => {
-        const keyToName: Record<string, string> = {
-          imsak: 'İmsak', gunes: 'Güneş', ogle: 'Öğle',
-          ikindi: 'İkindi', aksam: 'Akşam', yatsi: 'Yatsı'
-        };
-        const prayerName = keyToName[prayer] || prayer;
-        
-        // Alarm state'ini doğrudan güncelle
-        const event = new CustomEvent('showAlarm', { detail: { prayer: prayerName } });
-        window.dispatchEvent(event);
+        const prayerName = PRAYER_NAME_MAP[prayer] || prayer;
+        window.dispatchEvent(new CustomEvent('showAlarm', { detail: { prayer: prayerName } }));
       }, 500);
     }
   } catch (e) {
@@ -116,18 +82,14 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-
-        // --- MIGRATION LOGIC ---
         if (parsed.useEzanSound !== undefined) {
           parsed.soundType = parsed.useEzanSound ? 'ezan' : 'beep';
           delete parsed.useEzanSound;
         }
-
         const base = { ...DEFAULT_SETTINGS, ...parsed };
         if (!base.prayerReminders) base.prayerReminders = DEFAULT_SETTINGS.prayerReminders;
         if (!base.locationMode) base.locationMode = 'auto';
         if (!base.soundType) base.soundType = 'ezan';
-
         return base;
       } catch (e) {
         return DEFAULT_SETTINGS;
@@ -137,238 +99,69 @@ const App: React.FC = () => {
   });
 
   // ============================================================
-  // UYGULAMA BAŞLANGIÇ: Bildirim kanalı + alarm kontrolü
+  // ALARM EKRANINI AÇ (merkezi fonksiyon)
+  // Hem key ('ogle') hem de Türkçe isim ('Öğle') kabul eder
+  // ============================================================
+  const showAlarmScreen = useCallback((prayerKeyOrName: string) => {
+    const keyToName: Record<string, PrayerName> = {
+      imsak: PrayerName.Imsak, gunes: PrayerName.Gunes, ogle: PrayerName.Ogle,
+      ikindi: PrayerName.Ikindi, aksam: PrayerName.Aksam, yatsi: PrayerName.Yatsi
+    };
+    // Önce key olarak dene, bulamazsan direkt göster
+    const displayName = keyToName[prayerKeyOrName] || prayerKeyOrName;
+    setActiveAlarmPrayer(displayName);
+    setIsAlarmActive(true);
+  }, []);
+
+  // ============================================================
+  // UYGULAMA BAŞLANGIÇ: Bildirim kanalı + alarm kontrolü + listener
   // ============================================================
   useEffect(() => {
     const init = async () => {
-      // Android bildirim kanalı oluştur
       await setupNotificationChannel();
-      
-      // Başlangıç alarm kontrolü
       await checkForPendingAlarm();
     };
     init();
   }, []);
 
   // ============================================================
-  // ALARM EKRANI GÖSTERİMİ
+  // showAlarm GLOBAL EVENT LİSTENER (tek tanım)
+  // directAlarm.ts'deki setTimeout ve Android intent burayı tetikler
   // ============================================================
-  const showAlarmScreen = useCallback((prayerKey: string) => {
-    const keyToName: Record<string, PrayerName> = {
-      imsak: PrayerName.Imsak, gunes: PrayerName.Gunes, ogle: PrayerName.Ogle,
-      ikindi: PrayerName.Ikindi, aksam: PrayerName.Aksam, yatsi: PrayerName.Yatsi
-    };
-    setActiveAlarmPrayer(keyToName[prayerKey] || prayerKey);
-    setIsAlarmActive(true);
-  }, []);
-
-  // Custom event listener for URL-based alarm trigger
   useEffect(() => {
-    const handleShowAlarm = (event: any) => {
-      showAlarmScreen(event.detail.prayer);
+    const handleShowAlarm = (event: Event) => {
+      const detail = (event as CustomEvent<{ prayer: string }>).detail;
+      console.log('[App] showAlarm eventi alındı:', detail.prayer);
+      showAlarmScreen(detail.prayer);
     };
 
     window.addEventListener('showAlarm', handleShowAlarm);
-    return () => {
-      window.removeEventListener('showAlarm', handleShowAlarm);
-    };
+    return () => window.removeEventListener('showAlarm', handleShowAlarm);
   }, [showAlarmScreen]);
 
   // ============================================================
-  // UYGULAMA BAŞLANGIÇ
+  // BİLDİRİM LİSTENER'LARI (Native platform için)
   // ============================================================
   useEffect(() => {
-    initData();
-  }, []);
-
-  // ============================================================
-  // DOĞRUDAN ALARM TETİKLEME (Android AlarmManager)
-  // ============================================================
-  const scheduleDirectAlarm = async (prayerKey: string, scheduleTime: Date, testMode: boolean = false) => {
-    try {
-      if (Capacitor.isNativePlatform()) {
-        // Android'de AlarmManager ile doğrudan alarm tetikleme
-        const DirectAlarm = (await import('./services/directAlarm')).default;
-        
-        await DirectAlarm.scheduleAlarm({
-          prayer: prayerKey,
-          timestamp: scheduleTime.getTime(),
-          autoTrigger: true,
-          directLaunch: true,
-          testMode: testMode
-        });
-        
-        console.log(`${prayerKey} doğrudan alarmı planlandı: ${scheduleTime.toLocaleString()}`);
-      } else {
-        // Web ortamında DirectAlarm Web sürümünü kullan
-        const DirectAlarm = (await import('./services/directAlarm')).default;
-        
-        await DirectAlarm.scheduleAlarm({
-          prayer: prayerKey,
-          timestamp: scheduleTime.getTime(),
-          autoTrigger: true,
-          directLaunch: true,
-          testMode: testMode
-        });
-      }
-    } catch (error) {
-      console.error('Doğrudan alarm planlama hatası:', error);
-      // Fallback olarak normal bildirim kullan
-      await LocalNotifications.schedule({
-        notifications: [{
-          id: Math.floor(scheduleTime.getTime() / 1000),
-          title: testMode ? 'Test Alarmı' : 'Ezan Vakti',
-          body: testMode ? '1 dakika sonra test alarmı' : `${prayerKey} vakti geldi`,
-          schedule: { at: scheduleTime },
-          channelId: 'ezan_alarm_direct',
-          sound: 'default',
-          silent: false,
-          autoCancel: true,
-          extra: { 
-            prayer: prayerKey, 
-            autoTrigger: 'true', 
-            directLaunch: 'true',
-            testMode: testMode ? 'true' : 'false'
-          },
-          actionTypeId: 'OPEN_APP_ACTION'
-        }]
-      });
-    }
-  };
-
-  // ============================================================
-  // DOĞRUDAN ALARMLARI PLANLAMA (Bildirimsiz)
-  // ============================================================
-  const scheduleDirectAlarms = useCallback(async (data: PrayerData, currentSettings: AppSettings) => {
-    try {
-      if (!currentSettings.notificationsEnabled) {
-        console.log("Alarm servisleri kapalı.");
-        return;
-      }
-
-      // Önce mevcut bildirimleri temizle
-      const pending = await LocalNotifications.getPending();
-      if (pending.notifications.length > 0) {
-        await LocalNotifications.cancel(pending);
-      }
-
-      const today = new Date();
-      const tomorrow = new Date();
-      tomorrow.setDate(today.getDate() + 1);
-
-      const scheduleForDate = (dateObj: Date) => {
-        const dateKey = `${dateObj.getDate().toString().padStart(2, '0')}.${(dateObj.getMonth() + 1).toString().padStart(2, '0')}.${dateObj.getFullYear()}`;
-
-        const cachedRaw = localStorage.getItem('ezan_diyanet_v60');
-        if (!cachedRaw) return;
-        const cached = JSON.parse(cachedRaw);
-        const dayTimes = cached.days[dateKey];
-        if (!dayTimes) return;
-
-        Object.keys(dayTimes).forEach((key, idx) => {
-          const [h, m] = dayTimes[key].split(':').map(Number);
-          const scheduleTime = new Date(dateObj);
-          scheduleTime.setHours(h, m, 0, 0);
-
-          const offset = currentSettings.prayerReminders[key] || 0;
-          scheduleTime.setMinutes(scheduleTime.getMinutes() - offset);
-
-          if (scheduleTime > new Date()) {
-            // Tam ekran intent ile bildirim oluştur - otomatik uygulamayı açmak için
-            LocalNotifications.schedule({
-              notifications: [{
-                id: Math.floor(scheduleTime.getTime() / 1000) + idx,
-                title: 'Ezan Vakti', // Kısa başlık
-                body: `${key} vakti geldi`, // Kısa mesaj
-                schedule: { at: scheduleTime },
-                channelId: 'ezan_alarm_direct',
-                sound: '', // Sessiz - alarm sesi uygulama içinde çalacak
-                silent: false, // Sessiz değil - sistem tarafından işlensin
-                autoCancel: true,
-                extra: { 
-                  prayer: key, 
-                  autoTrigger: 'true', 
-                  directLaunch: 'true'
-                }
-              }]
-            }).then(() => {
-              console.log(`${key} otomatik alarmı planlandı: ${scheduleTime.toLocaleString()}`);
-            }).catch(e => {
-              console.error(`${key} alarmı planlanamadı:`, e);
-            });
-          }
-        });
-      };
-
-      scheduleForDate(today);
-      scheduleForDate(tomorrow);
-
-    } catch (e) {
-      console.error("Doğrudan alarm planlama hatası:", e);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (prayerData) {
-      scheduleDirectAlarms(prayerData, settings);
-    }
-  }, [prayerData, settings]);
-
-  // ============================================================
-  // ALARM EKRANI GÖSTERİMİ (Bildirim ve intent için)
-  // ============================================================
-  useEffect(() => {
-    // Native platform intent'leri için alarm ekranı gösterimi
-    const handleShowAlarm = (event: any) => {
-      showAlarmScreen(event.detail.prayer);
-    };
-
-    window.addEventListener('showAlarm', handleShowAlarm);
-    
-    // Bildirim listener'ları - otomatik alarm tetikleme
     const actionListener = LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
       const prayer = notification.notification?.extra?.prayer;
       const autoTrigger = notification.notification?.extra?.autoTrigger;
-      const directLaunch = notification.notification?.extra?.directLaunch;
-      const testMode = notification.notification?.extra?.testMode;
-      
-      // Test modu kontrolü
-      if (testMode === 'true') {
-        console.log('Test alarmı tetiklendi:', prayer);
-        showAlarmScreen(prayer);
-        return;
-      }
-      
-      // Otomatik alarm tetikleme
-      if (prayer && autoTrigger === 'true' && directLaunch === 'true') {
-        console.log('Otomatik alarm tetiklendi:', prayer);
+      if (prayer && (autoTrigger === 'true' || notification.notification?.extra?.testMode === 'true')) {
+        console.log('[App] Bildirim action tetiklendi:', prayer);
         showAlarmScreen(prayer);
       }
     });
 
-    // Uygulama açıkken bildirim tetiklendiğinde
     const receiveListener = LocalNotifications.addListener('localNotificationReceived', (notification) => {
       const prayer = notification.extra?.prayer;
       const autoTrigger = notification.extra?.autoTrigger;
-      const directLaunch = notification.extra?.directLaunch;
-      const testMode = notification.extra?.testMode;
-      
-      // Test modu kontrolü
-      if (testMode === 'true') {
-        console.log('Test alarmı received:', prayer);
-        showAlarmScreen(prayer);
-        return;
-      }
-      
-      // Otomatik alarm tetikleme
-      if (prayer && autoTrigger === 'true' && directLaunch === 'true') {
-        console.log('Otomatik alarm received:', prayer);
+      if (prayer && (autoTrigger === 'true' || notification.extra?.testMode === 'true')) {
+        console.log('[App] Bildirim received tetiklendi:', prayer);
         showAlarmScreen(prayer);
       }
     });
 
     return () => {
-      window.removeEventListener('showAlarm', handleShowAlarm);
       actionListener.then(h => h.remove());
       receiveListener.then(h => h.remove());
     };
@@ -377,14 +170,16 @@ const App: React.FC = () => {
   // ============================================================
   // VERİ YÜKLEME VE İZİNLER
   // ============================================================
+  useEffect(() => {
+    initData();
+  }, []);
+
   const initData = async (overrideSettings?: AppSettings) => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Minimum 1.5 saniye yükleme ekranı göster
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
+
       const currentSettings = overrideSettings || settings;
       let lat = DEFAULT_COORDS.latitude;
       let lng = DEFAULT_COORDS.longitude;
@@ -411,10 +206,7 @@ const App: React.FC = () => {
       const data = await fetchPrayerTimes(lat, lng, cityOverride);
       setPrayerData(data);
       updateNextPrayer(data.times);
-
-      // Arka plan bildirimlerini planla
       scheduleDirectAlarms(data, currentSettings);
-
     } catch (err) {
       setError("Veri alınamadı. İnternet bağlantınızı kontrol edin.");
     } finally {
@@ -438,21 +230,80 @@ const App: React.FC = () => {
   };
 
   const handleLocationSelect = (mode: 'auto' | 'manual', manualData?: ManualLocation) => {
-    // Şehir değiştiğinde önbelleği temizle
     localStorage.removeItem('ezan_diyanet_v60');
-    
-    const newSettings = {
-      ...settings,
-      locationMode: mode,
-      manualLocation: manualData
-    };
+    const newSettings = { ...settings, locationMode: mode, manualLocation: manualData };
     handleUpdateSettings(newSettings);
-    
-    // Konum değişiminde güncel ayarlarla verileri yenile
-    setTimeout(() => {
-      initData(newSettings);
-    }, 100);
+    setTimeout(() => initData(newSettings), 100);
   };
+
+  // ============================================================
+  // DOĞRUDAN ALARM PLANLAMA (Bildirimsiz — DirectAlarm kullanır)
+  // ============================================================
+  const scheduleDirectAlarms = useCallback(async (data: PrayerData, currentSettings: AppSettings) => {
+    try {
+      if (!currentSettings.notificationsEnabled) {
+        console.log("Alarm servisleri kapalı.");
+        return;
+      }
+
+      const pending = await LocalNotifications.getPending();
+      if (pending.notifications.length > 0) {
+        await LocalNotifications.cancel(pending);
+      }
+
+      const today = new Date();
+      const tomorrow = new Date();
+      tomorrow.setDate(today.getDate() + 1);
+
+      const scheduleForDate = (dateObj: Date) => {
+        const dateKey = `${dateObj.getDate().toString().padStart(2, '0')}.${(dateObj.getMonth() + 1).toString().padStart(2, '0')}.${dateObj.getFullYear()}`;
+        const cachedRaw = localStorage.getItem('ezan_diyanet_v60');
+        if (!cachedRaw) return;
+        const cached = JSON.parse(cachedRaw);
+        const dayTimes = cached.days[dateKey];
+        if (!dayTimes) return;
+
+        Object.keys(dayTimes).forEach((key, idx) => {
+          const [h, m] = dayTimes[key].split(':').map(Number);
+          const scheduleTime = new Date(dateObj);
+          scheduleTime.setHours(h, m, 0, 0);
+          const offset = currentSettings.prayerReminders[key] || 0;
+          scheduleTime.setMinutes(scheduleTime.getMinutes() - offset);
+
+          if (scheduleTime > new Date()) {
+            LocalNotifications.schedule({
+              notifications: [{
+                id: Math.floor(scheduleTime.getTime() / 1000) + idx,
+                title: 'Ezan Vakti',
+                body: `${PRAYER_NAME_MAP[key] || key} vakti geldi`,
+                schedule: { at: scheduleTime },
+                channelId: 'ezan_alarm_direct',
+                sound: '',
+                silent: false,
+                autoCancel: true,
+                extra: { prayer: key, autoTrigger: 'true', directLaunch: 'true' }
+              }]
+            }).then(() => {
+              console.log(`${key} alarmı planlandı: ${scheduleTime.toLocaleString()}`);
+            }).catch(e => {
+              console.error(`${key} alarmı planlanamadı:`, e);
+            });
+          }
+        });
+      };
+
+      scheduleForDate(today);
+      scheduleForDate(tomorrow);
+    } catch (e) {
+      console.error("Alarm planlama hatası:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (prayerData) {
+      scheduleDirectAlarms(prayerData, settings);
+    }
+  }, [prayerData, settings]);
 
   // ============================================================
   // GERİ SAYIM VE ÖN PLAN ALARM KONTROLÜ
@@ -461,12 +312,10 @@ const App: React.FC = () => {
     if (!times) return;
     const { nextKey, isTomorrow } = calculateNextPrayer(times);
     const timeStr = times[nextKey];
-
     const keyToName: Record<string, PrayerName> = {
       imsak: PrayerName.Imsak, gunes: PrayerName.Gunes, ogle: PrayerName.Ogle,
       ikindi: PrayerName.Ikindi, aksam: PrayerName.Aksam, yatsi: PrayerName.Yatsi
     };
-
     const diff = getTimeDifferenceMinutes(timeStr, isTomorrow);
     setNextPrayer({
       name: keyToName[nextKey],
@@ -494,12 +343,7 @@ const App: React.FC = () => {
       if (freshRemaining <= triggerTime) {
         setLastAlarmTime(prev => {
           if (prev !== currentAlarmKey) {
-            const keyToName: Record<string, PrayerName> = {
-              imsak: PrayerName.Imsak, gunes: PrayerName.Gunes, ogle: PrayerName.Ogle,
-              ikindi: PrayerName.Ikindi, aksam: PrayerName.Aksam, yatsi: PrayerName.Yatsi
-            };
-            setActiveAlarmPrayer(keyToName[nextKey] || nextKey);
-            setIsAlarmActive(true);
+            showAlarmScreen(nextKey);
             return currentAlarmKey;
           }
           return prev;
@@ -508,96 +352,74 @@ const App: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [prayerData, settings, updateNextPrayer]);
+  }, [prayerData, settings, updateNextPrayer, isAlarmActive, showAlarmScreen]);
 
   // ============================================================
-  // TEST FONKSİYONU - DOĞRUDAN ALARM MANAGER
+  // ⚡ TEST ALARMI — BİLDİRİME TIKLAMAYA GEREK YOK
+  // Web + Native her iki platformda 5 saniye sonra otomatik açılır
   // ============================================================
   const handleTestSequence = async () => {
     try {
-      console.log('DOĞRUDAN ALARM MANAGER - Test dizisi başlatılıyor...');
-      
-      // 1. Arka plan servisini başlat (1 dakika sonra alarm için)
-      const testAlarmTime = new Date();
-      testAlarmTime.setMinutes(testAlarmTime.getMinutes() + 1);
-      
+      // Test için 5 saniye (gerçek alarm için 1 dakika şeklinde değiştirebilirsiniz)
+      const TEST_DELAY_MS = 5000;
+      const testAlarmTime = new Date(Date.now() + TEST_DELAY_MS);
+
+      console.log(`[Test] Alarm ${TEST_DELAY_MS / 1000}sn sonra otomatik açılacak:`, testAlarmTime.toLocaleTimeString());
+
       if (Capacitor.isNativePlatform()) {
-        // Android'de doğrudan AlarmManager kullan
+        // Android: DirectAlarm plugin → AlarmManager → uygulama uyandırılır
         try {
-          console.log('Doğrudan AlarmManager deneniyor...');
-          
-          // DirectAlarm plugin kullanarak alarmı planla
-          const DirectAlarm = (await import('./services/directAlarm')).default;
-          await DirectAlarm.scheduleAlarm({
-            prayer: 'test_ogle',
-            timestamp: testAlarmTime.getTime()
+          const AlarmPlugin = (await import('./services/directAlarm')).default;
+          await AlarmPlugin.scheduleAlarm({
+            prayer: 'ogle',          // geçerli key — Türkçe'ye çevrilir
+            timestamp: testAlarmTime.getTime(),
+            autoTrigger: true,
+            directLaunch: true,
+            testMode: true,
           });
-          
-          console.log('Doğrudan AlarmManager çağrısı başarılı');
-        } catch (error) {
-          console.log('Doğrudan AlarmManager başarısız, bildirim denenıyor:', error);
-          
-          // Fallback: Bildirim kullan
+          console.log('[Test] Native AlarmManager çağrısı başarılı.');
+        } catch (nativeError) {
+          console.warn('[Test] Native alarm başarısız, bildirim yedek kullanılıyor:', nativeError);
+          // Yedek: LocalNotification (uygulama açıkken çalışır)
           await LocalNotifications.schedule({
             notifications: [{
               id: Math.floor(testAlarmTime.getTime() / 1000),
-              title: '🔥 TEST ALARMI',
-              body: '1 dakika sonra OTOMATİK açılacak - LÜTFEN BEKLEYİN!',
+              title: '⚡ Test Alarmı',
+              body: 'Otomatik alarm testi',
               schedule: { at: testAlarmTime },
               channelId: 'ezan_alarm_direct',
               sound: 'default',
               silent: false,
               autoCancel: true,
-              extra: { 
-                prayer: 'test_ogle', 
-                autoTrigger: 'true', 
-                directLaunch: 'true',
-                testMode: 'true',
-                forceAutoOpen: 'true'
-              },
-              actionTypeId: 'OPEN_APP_ACTION'
+              extra: { prayer: 'ogle', autoTrigger: 'true', directLaunch: 'true', testMode: 'true' }
             }]
           });
         }
-      } else {
-        // Web ortamında normal bildirim kullan
-        await LocalNotifications.schedule({
-          notifications: [{
-            id: Math.floor(testAlarmTime.getTime() / 1000),
-            title: 'Test Alarmı',
-            body: '1 dakika sonra test alarmı',
-            schedule: { at: testAlarmTime },
-            channelId: 'ezan_alarm_direct',
-            sound: 'default',
-            silent: false,
-            autoCancel: true,
-            extra: { 
-              prayer: 'test_ogle', 
-              autoTrigger: 'true', 
-              directLaunch: 'true',
-              testMode: 'true'
-            },
-            actionTypeId: 'OPEN_APP_ACTION'
-          }]
-        });
-      }
-      
-      console.log('Test alarmı planlandı:', testAlarmTime.toLocaleString());
-      
-      // 2. Uygulamayı kapat
-      if (Capacitor.isNativePlatform()) {
+
+        // Uygulamayı kapat (2sn sonra) — alarm Android'i uyandırır
         setTimeout(() => {
-          console.log('Uygulama kapatılıyor...');
+          console.log('[Test] Uygulama kapatılıyor, alarm bekleniliyor...');
           CapacitorApp.exitApp();
-        }, 2000); // 2 saniye bekle
+        }, 2000);
+
       } else {
-        // Web ortamında sadece mesaj göster
-        alert('Test alarmı 1 dakika sonra planlandı. Web ortamında uygulama kapatılamaz.');
+        // WEB: DirectAlarmWeb.scheduleAlarm() setTimeout ile showAlarm fırlatır
+        // → window event listener → showAlarmScreen() → AlarmOverlay açılır
+        // Bildirime tıklamaya GEREK YOK
+        const AlarmPlugin = (await import('./services/directAlarm')).default;
+        await AlarmPlugin.scheduleAlarm({
+          prayer: 'ogle',
+          timestamp: testAlarmTime.getTime(),
+          autoTrigger: true,
+          directLaunch: true,
+          testMode: true,
+        });
+
+        alert(`⚡ Test alarmı ${TEST_DELAY_MS / 1000} saniye sonra otomatik açılacak!\nBildirime tıklamanıza gerek yok.`);
       }
-      
     } catch (error) {
-      console.error('Test dizisi hatası:', error);
-      alert('Test dizisi başlatılamadı: ' + error);
+      console.error('[Test] Hata:', error);
+      alert('Test alarmı başlatılamadı: ' + error);
     }
   };
 
@@ -606,10 +428,7 @@ const App: React.FC = () => {
   // ============================================================
   const handleStopAlarm = () => {
     setIsAlarmActive(false);
-    
-    // Uygulamayı kapat
     if (Capacitor.isNativePlatform()) {
-      // Android için uygulama kapatma
       CapacitorApp.exitApp();
     }
   };
@@ -620,16 +439,12 @@ const App: React.FC = () => {
   const alarmTimeDisplay = useMemo(() => {
     if (!nextPrayer) return null;
     const reminderMinutes = settings.prayerReminders[nextPrayer.key] ?? 0;
-
     if (reminderMinutes === 0) return "Tam Vaktinde";
-
     const [h, m] = nextPrayer.time.split(':').map(Number);
     const d = new Date();
     d.setHours(h, m - reminderMinutes);
-
     const alarmH = d.getHours().toString().padStart(2, '0');
     const alarmM = d.getMinutes().toString().padStart(2, '0');
-
     return `${alarmH}:${alarmM} (${reminderMinutes} dk önce)`;
   }, [nextPrayer, settings.prayerReminders]);
 
@@ -688,7 +503,6 @@ const App: React.FC = () => {
   // ============================================================
   return (
     <div className="flex flex-col h-full relative">
-      {/* Alarm Overlay */}
       {isAlarmActive && (
         <AlarmOverlay
           prayerName={activeAlarmPrayer}
@@ -697,7 +511,6 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -708,7 +521,6 @@ const App: React.FC = () => {
         prayerData={prayerData}
       />
 
-      {/* Location Modal */}
       <LocationModal
         isOpen={isLocationModalOpen}
         onClose={() => setIsLocationModalOpen(false)}
@@ -748,7 +560,6 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 overflow-y-auto pb-6 bg-slate-50">
-
         {/* Next Prayer Hero Section */}
         <div className="m-2 sm:m-4 mt-6 p-4 sm:p-8 bg-white rounded-3xl shadow-lg border-2 border-primary/20 text-center">
           <h2 className="text-xl font-bold text-slate-500 uppercase tracking-widest mb-2">SIRADAKİ VAKİT</h2>
@@ -774,10 +585,7 @@ const App: React.FC = () => {
         {/* Prayer List */}
         <div className="mx-2 sm:mx-4 mt-6 space-y-2 sm:space-y-3">
           {PrayerKeys.map((key) => {
-            const map: Record<string, string> = {
-              imsak: 'İmsak', gunes: 'Güneş', ogle: 'Öğle', ikindi: 'İkindi', aksam: 'Akşam', yatsi: 'Yatsı'
-            };
-            const name = map[key];
+            const name = PRAYER_NAME_MAP[key] || key;
             const time = prayerData?.times[key];
             const isNext = nextPrayer?.key === key;
 
@@ -789,10 +597,9 @@ const App: React.FC = () => {
                 <span className={`text-xl sm:text-2xl font-bold ${isNext ? 'text-white' : 'text-slate-500'}`}>{name}</span>
                 <span className={`text-2xl sm:text-3xl font-bold ${isNext ? 'text-white' : 'text-slate-800'}`}>{time}</span>
               </div>
-            )
+            );
           })}
         </div>
-
       </main>
 
       {/* Footer */}
