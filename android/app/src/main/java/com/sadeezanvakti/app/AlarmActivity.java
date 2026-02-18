@@ -28,22 +28,29 @@ public class AlarmActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // Ekranı kilitle ekranının üzerinde göster
+        System.out.println("🔥 AlarmActivity BAŞLATILDI!");
+        
+        // Ekranı kilitle ekranının üzerinde göster - TÜM YÖNTEMLER
+        Window window = getWindow();
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD |
+            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON |
+            WindowManager.LayoutParams.FLAG_FULLSCREEN |
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        );
+        
+        // Android 8.0+ için
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
-        } else {
-            Window window = getWindow();
-            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-                           WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
-                           WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-                           WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD |
-                           WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON);
         }
         
-        // Kilidi kaldır
-        KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        // Android 10+ için
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
             keyguardManager.requestDismissKeyguard(this, null);
         }
         
@@ -51,6 +58,8 @@ public class AlarmActivity extends Activity {
         Intent intent = getIntent();
         String prayer = intent.getStringExtra("prayer");
         if (prayer == null) prayer = "Namaz";
+        
+        System.out.println("Alarm gösteriliyor: " + prayer);
         
         // Layout oluştur
         setContentView(createAlarmView(prayer));

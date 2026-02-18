@@ -29,6 +29,8 @@ public class DirectAlarmPlugin extends Plugin {
             AlarmManager alarmManager = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
             Intent intent = new Intent(getContext(), AlarmReceiver.class);
             intent.putExtra("prayer", prayer);
+            intent.putExtra("autoTrigger", "true");  // KRİTİK EKLEME
+            intent.putExtra("directLaunch", "true"); // KRİTİK EKLEME
             
             PendingIntent pendingIntent = PendingIntent.getBroadcast(
                 getContext(),
