@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ezan Vakti - Ezan Vakti Uygulaması</string>
+    <string name="title_activity_main">Ezan Vakti - Ezan Vakti Uygulaması</string>
+    <string name="package_name">com.sadeezanvakti.app</string>
+    <string name="custom_url_scheme">com.sadeezanvakti.app</string>
+</resources>

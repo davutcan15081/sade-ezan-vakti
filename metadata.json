@@ -1,0 +1,7 @@
+{
+  "name": "Sade Ezan Vakti",
+  "description": "Yaşlılar için özel olarak tasarlanmış, sade ve anlaşılır ezan vakti uygulaması.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
