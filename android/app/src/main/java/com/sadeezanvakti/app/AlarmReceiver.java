@@ -45,61 +45,30 @@ public class AlarmReceiver extends BroadcastReceiver {
                 keyguardManager.requestDismissKeyguard(null, null);
             }
             
-            // Uygulamayı açmak için Intent oluştur - MAKSİMUM GÜÇ
-            Intent launchIntent = new Intent(context, MainActivity.class);
-            launchIntent.putExtra("prayer", prayer);
-            launchIntent.putExtra("autoTrigger", autoTrigger);
-            launchIntent.putExtra("directLaunch", directLaunch);
-            launchIntent.putExtra("testMode", testMode);
-            launchIntent.setFlags(
+            // Tam ekran alarm activity'sini başlat
+            Intent alarmIntent = new Intent(context, AlarmActivity.class);
+            alarmIntent.putExtra("prayer", prayer);
+            alarmIntent.putExtra("autoTrigger", autoTrigger);
+            alarmIntent.putExtra("directLaunch", directLaunch);
+            alarmIntent.putExtra("testMode", testMode);
+            alarmIntent.setFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK | 
                 Intent.FLAG_ACTIVITY_CLEAR_TOP | 
-                Intent.FLAG_ACTIVITY_SINGLE_TOP |
-                Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT |
-                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT |
-                Intent.FLAG_ACTIVITY_NO_HISTORY |
-                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS |
-                Intent.FLAG_ACTIVITY_NO_ANIMATION |
-                Intent.FLAG_ACTIVITY_TASK_ON_HOME |
-                Intent.FLAG_ACTIVITY_RETAIN_IN_RECENTS |
-                Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY
+                Intent.FLAG_ACTIVITY_NO_USER_ACTION |
+                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
             );
             
-            // HEMEN BAŞLAT - 0.1 saniye sonra
+            // HEMEN BAŞLAT - Alarm Activity'yi aç
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try {
-                    System.out.println("UYGULAMA HEMEN BAŞLATILIYOR...");
-                    context.startActivity(launchIntent);
-                    System.out.println("UYGULAMA BAŞLATILDI!");
+                    System.out.println("ALARM ACTIVITY BAŞLATILIYOR...");
+                    context.startActivity(alarmIntent);
+                    System.out.println("ALARM ACTIVITY BAŞLATILDI!");
                 } catch (Exception e) {
-                    System.err.println("Hemen başlatma hatası: " + e.getMessage());
+                    System.err.println("Alarm activity başlatma hatası: " + e.getMessage());
                     e.printStackTrace();
                 }
             }, 100);
-            
-            // 1 saniye sonra TEKRAR DENE
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                try {
-                    System.out.println("UYGULAMA TEKRAR BAŞLATILIYOR...");
-                    context.startActivity(launchIntent);
-                    System.out.println("UYGULAMA TEKRAR BAŞLATILDI!");
-                } catch (Exception e) {
-                    System.err.println("Tekrar başlatma hatası: " + e.getMessage());
-                    e.printStackTrace();
-                }
-            }, 1000);
-            
-            // 3 saniye sonra SON DENE
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                try {
-                    System.out.println("UYGULAMA SON DENEME BAŞLATILIYOR...");
-                    context.startActivity(launchIntent);
-                    System.out.println("UYGULAMA SON DENEME BAŞLATILDI!");
-                } catch (Exception e) {
-                    System.err.println("Son deneme başlatma hatası: " + e.getMessage());
-                    e.printStackTrace();
-                }
-            }, 3000);
             
             // Bildirim kanalını oluştur
             createNotificationChannel(context);
@@ -108,15 +77,15 @@ public class AlarmReceiver extends BroadcastReceiver {
             PendingIntent pendingIntent = PendingIntent.getActivity(
                 context, 
                 0, 
-                launchIntent, 
+                alarmIntent, 
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             );
             
-            // Bildirim oluştur - en güçlü ayarlar
+            // Bildirim oluştur - tam ekran intent ile
             NotificationCompat.Builder builder = new NotificationCompat.Builder(context, "ezan_alarm_direct")
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle("🔥 SON ÇARE ALARMI")
-                .setContentText(prayer.toUpperCase() + " vakti geldi!")
+                .setContentTitle("🕌 EZAN VAKTİ")
+                .setContentText(prayer + " vakti geldi! Dokunarak açın.")
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setAutoCancel(true)
@@ -126,7 +95,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                 .setVibrate(new long[]{0, 1000, 500, 1000})
                 .setOngoing(false)
                 .setOnlyAlertOnce(false)
-                .setUsesChronometer(false)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setLocalOnly(false);
             
             // Bildirimi göster
